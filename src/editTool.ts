@@ -205,8 +205,10 @@ async function applyEditsToFile(
                     result.error = 'workspace edit failed to apply';
                 }
             }
+        } else {
+            // Auto-save the document so changes persist to disk
+            await document.save();
         }
-    }
 
     return results;
 }

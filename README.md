@@ -187,6 +187,34 @@ Invoke with `@hashline-coder` in chat.
 | Insert at file start | `"0:"` | text to insert | `true` |
 | Delete lines | `"2:ab"` or `"2:ab,3:fn"` | `""` | omit |
 
+## Limitations & Future Work
+
+### Change tracking in Copilot's UI
+
+Edits made by `hashline_edit` do not currently appear in Copilot's "N files
+changed" list in the chat UI. This is because VS Code's stable extension API
+does not provide a way for tools (registered via `vscode.lm.registerTool`) to
+report file edits back into the chat response stream.
+
+The proper fix requires the **`chatParticipantAdditions` proposed API**, which
+includes:
+
+- `ChatResponseTextEditPart` — push `TextEdit[]` directly into the chat
+  response stream
+- `ChatResponseExternalEditPart` — wrap `workspace.applyEdit()` calls in a
+  tracked callback via `response.externalEdit(uri, callback)`
+
+These APIs exist in VS Code's proposed API layer
+(`vscode.proposed.chatParticipantAdditions.d.ts`) but are not yet stable.
+When they stabilize, `hashline_edit` should use `externalEdit()` to wrap its
+`workspace.applyEdit()` call, which would automatically track the changes in
+Copilot's file change list, enable proper rollback, and handle saving.
+
+As a workaround, `hashline_edit` currently auto-saves files after editing so
+changes persist to disk immediately. Edits are visible via `git diff` and in
+VS Code's Source Control view, even though they don't appear in the chat UI's
+change list.
+
 ## License
 
 MIT
