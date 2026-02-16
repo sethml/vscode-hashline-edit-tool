@@ -272,18 +272,19 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
         const applied = allResults.filter((r) => r.status === 'ok').length;
         const failed = allResults.filter((r) => r.status === 'error').length;
 
-        // Compact response for single successful edit
-        if (allResults.length === 1 && applied === 1) {
+        // Build a compact result object
+        if (failed === 0 && applied === 1) {
             return new vscode.LanguageModelToolResult([
                 new vscode.LanguageModelTextPart(JSON.stringify({ status: 'ok', applied: 1 })),
             ]);
         }
 
-        const response = {
-            applied,
-            failed,
-            results: allResults,
-        };
+        const response: Record<string, unknown> = { applied, failed };
+        if (failed > 0) {
+            response.errors = allResults
+                .filter((r) => r.status === 'error')
+                .map((r) => ({ filePath: r.filePath, lineHashes: r.lineHashes, error: r.error }));
+        }
 
         return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(JSON.stringify(response, null, 2)),
@@ -314,7 +315,28 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
             fileStats.set(edit.filePath, stats);
         }
 
-        // Build per-file "Edited filename +N-M" lines
+        // Build per-file summary lines
+        const summaryLines = this.formatFileStats(fileStats);
+        const summaryText = summaryLines.join('  \n');
+
+        const invocationMsg = new vscode.MarkdownString(summaryText);
+        invocationMsg.isTrusted = true;
+
+        const confirmMsg = new vscode.MarkdownString(
+            summaryLines.join('  \n') + '\n\nProceed?'
+        );
+        confirmMsg.isTrusted = true;
+
+        return {
+            invocationMessage: invocationMsg,
+            confirmationMessages: {
+                title: 'Hashline Edit',
+                message: confirmMsg,
+            },
+        };
+    }
+
+    private formatFileStats(fileStats: Map<string, { added: number; removed: number }>): string[] {
         const lines: string[] = [];
         for (const [filePath, stats] of fileStats) {
             const basename = filePath.split('/').pop() ?? filePath;
@@ -322,27 +344,14 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
 
             let diffStr = '';
             if (stats.added > 0) {
-                diffStr += ` <span style="color:var(--vscode-terminal-ansiGreen)">+${stats.added}</span>`;
+                diffStr += ` +${stats.added}`;
             }
             if (stats.removed > 0) {
-                diffStr += `<span style="color:var(--vscode-terminal-ansiRed)">-${stats.removed}</span>`;
+                diffStr += `-${stats.removed}`;
             }
 
             lines.push(`Edited [${basename}](${uri.toString()})${diffStr}`);
         }
-
-        const msg = new vscode.MarkdownString(lines.join('\n\n'));
-        msg.supportHtml = true;
-        msg.isTrusted = true;
-
-        return {
-            invocationMessage: msg,
-            confirmationMessages: {
-                title: 'Hashline Edit',
-                message: new vscode.MarkdownString(
-                    `Apply ${edits.length} edit(s) to ${fileStats.size} file(s)?`
-                ),
-            },
-        };
+        return lines;
     }
 }
