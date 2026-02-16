@@ -2095,3 +2095,547 @@ Done. The two bugs fixed:
 2. **Post-edit links** track a cumulative delta per file — when chunk 1 deletes 4 lines, chunk 2's post-edit line numbers shift up by 4
 
 The fix also adds `isInsertAfter` to chunk data so insert-after links correctly point to the anchor line (pre-edit) or the newly inserted lines (post-edit), and sorts chunks by line number before computing deltas. Reload the window to pick up the updated extension.
+
+User: Do some test edits that should exercise all of the cases affected by the last change.
+
+GitHub Copilot: 
+
+   
+
+Reading all lines of [hash.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/hash.ts"
+}
+
+Reading all lines of [util.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/util.ts"
+}
+
+I'll do a single edit call that exercises all the cases:
+
+1. **Replace (shrinking)**: Replace 4 comment lines with 2 in hash.ts (lines 14-17 → 2 lines, so +2-4)
+2. **Delete**: Delete a blank line in hash.ts (line 31, so +0-1) — tests cumulative delta after chunk 1
+3. **Insert after**: Insert a new comment after lineHash function in hash.ts (after line 37, so +1) — tests cumulative delta after chunks 1+2
+4. **Replace (expanding)** in a different file: Replace 1 comment with 2 in util.ts (line 11, so +2-1)
+
+This covers: replace-shrink, delete, insert-after, replace-expand, multi-chunk with cumulative delta, and multi-file. 
+
+Edited [hash.ts +2-4](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L14-L16) [-1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L29) [+1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L35-L36)  
+Edited [util.ts +2-1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts#L11-L13)
+Completed with input: {
+  "edits": [
+    {
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "14:lv,15:nk,16:xj,17:gk",
+      "content": "        // Process UTF-16 code units individually.\n        // For ASCII this matches byte-level FNV-1a."
+    },
+    {
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "31:dd",
+      "content": ""
+    },
+    {
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "37:io",
+      "insertAfter": true,
+      "content": "// Used by formatLine below"
+    },
+    {
+      "filePath": "hashline-edit/src/util.ts",
+      "lineHashes": "11:jm",
+      "content": "    // Resolve relative to the root of the first workspace folder.\n    // Falls back to treating the path as absolute if no workspace is open."
+    }
+  ]
+}
+
+All 4 edits applied. Let me verify the results are correct, then check what the links pointed to:  
+
+Reading all lines of [hash.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/hash.ts"
+}
+
+Reading all lines of [util.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/util.ts"
+}
+
+Good, all edits applied correctly. Let me analyze what the pre-edit and post-edit links should have been:
+
+**hash.ts — 3 chunks (sorted by line number):**
+
+| Chunk | Type | Original lines | Diff | Pre-edit link | Post-edit link | Cumulative Δ |
+|-------|------|---------------|------|---------------|----------------|-------------|
+| 1 | Replace (shrink) | 14-17 (4 lines) | +2-4 | `#L14-L18` (4 lines) | `#L14-L16` (2 new lines) | -2 |
+| 2 | Delete | 31 (1 line) | -1 | `#L31-L32` (1 line) | `#L29` (point) | -3 |
+| 3 | Insert after | 37 (anchor) | +1 | `#L37-L38` (anchor) | `#L35-L36` (1 new line) | -2 |
+
+**util.ts — 1 chunk:**
+
+| Chunk | Type | Original lines | Diff | Pre-edit link | Post-edit link |
+|-------|------|---------------|------|---------------|----------------|
+| 1 | Replace (expand) | 11 (1 line) | +2-1 | `#L11-L12` (1 line) | `#L11-L13` (2 new lines) |
+
+Can you check whether the links in the confirmation (pre-edit, "Edit") and completion (post-edit, "Edited") messages matched those expected values? Now let me revert the test edits:  
+
+Edited [hash.ts +4-2](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L14-L18) [+2](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L31-L33) [-1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L39)  
+Edited [util.ts +1-2](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts#L11-L12)
+Completed with input: {
+  "edits": [
+    {
+      "content": "        // Process UTF-16 code units. For ASCII-dominated source code\n        // this is equivalent to byte-level FNV-1a. For multi-byte\n        // characters we hash both bytes of the code unit, which is\n        // fine — we only need distribution, not cryptographic strength.",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "14:jx,15:ws"
+    },
+    {
+      "content": "",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "35:fd"
+    },
+    {
+      "content": "\n",
+      "filePath": "hashline-edit/src/hash.ts",
+      "insertAfter": true,
+      "lineHashes": "28:io"
+    },
+    {
+      "content": "    // Resolve relative to first workspace folder",
+      "filePath": "hashline-edit/src/util.ts",
+      "lineHashes": "11:sk,12:fv"
+    }
+  ]
+}
+
+User: They match the expected.
+The +1 case pre-edit (anchor), where we're just inserting a line, should just be [...](file#L38) rather than #L37-L38. In general, inserts should be the line after if it's an insertAfter, or the line matched if it's insert before.
+Let's swap the + and -. I realize it's traditional to say +7-3, but in this case where we're conceptually deleting 3 lines then inserting 7, I think it makes more sense to write it -3+7.
+Let's comma-seperate the chunks for better visual distinction:
+[hash.ts -4+2](...), [-1](...), [+1](...)
+
+GitHub Copilot: 
+
+  
+
+Reading lines 400-466 of [editTool.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L400-L467)
+Completed with input: {
+  "filePath": "hashline-edit/src/editTool.ts",
+  "startLine": 400,
+  "endLine": 466
+}
+
+Edited [editTool.ts +3-3](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L438-L441) [+5-5](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L448-L453) [+1-1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L463-L464)
+Completed with input: {
+  "edits": [
+    {
+      "content": "                        if (chunk.isInsertAfter) {\n                            // Point to the line after the anchor\n                            lineFragment = `#L${chunk.maxLine + 1}`;",
+      "filePath": "hashline-edit/src/editTool.ts",
+      "lineHashes": "438:ka,439:je,440:li"
+    },
+    {
+      "content": "                // Build diff string: -M+N order (removed then added)\n                let diffStr = '';\n                if (chunk.removed > 0) { diffStr += `-${chunk.removed}`; }\n                if (chunk.added > 0) { diffStr += `+${chunk.added}`; }\n                if (!diffStr) { diffStr = '+0'; }",
+      "filePath": "hashline-edit/src/editTool.ts",
+      "lineHashes": "448:jh,449:up,450:xh,451:tc,452:bw"
+    },
+    {
+      "content": "            lines.push(`${verb} ${parts.join(', ')}`);",
+      "filePath": "hashline-edit/src/editTool.ts",
+      "lineHashes": "463:qt"
+    }
+  ]
+}
+
+Ran terminal command:  cd /Users/sethml/src/opencascade-rs/hashline-edit && time npm run compile 2>&1 && time npx vsce package --allow-missing-repository 2>&1
+
+Ran terminal command:  "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension /Users/sethml/src/opencascade-rs/hashline-edit/hashline-edit-1.0.0.vsix --force 2>&1
+
+Done. Three changes:
+
+1. **Pre-edit insert-after** → `#L${maxLine+1}` (line after anchor, no range)
+2. **Diff order** → `-3+7` (removed first, then added)
+3. **Comma-separated** → `[hash.ts -4+2](...), [-1](...), [+1](...)`
+
+Reload the window, then we can do test edits to verify.
+
+User: Done. Do test edits.
+
+GitHub Copilot: Reading all lines of [hash.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/hash.ts"
+}
+
+Reading all lines of [util.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/util.ts"
+}
+
+Reading all lines of [extension.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/extension.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/extension.ts"
+}
+
+Edited [hash.ts -4+2](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L14-L16), [-1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L30), [+1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L36-L37)  
+Edited [util.ts -1+2](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts#L11-L13)  
+Edited [extension.ts +1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/extension.ts#L6-L7)
+Completed with input: {
+  "edits": [
+    {
+      "content": "        // Process UTF-16 code units individually.\n        // For ASCII this matches byte-level FNV-1a.",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "14:lv,15:nk,16:xj,17:gk"
+    },
+    {
+      "content": "",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "32:dd"
+    },
+    {
+      "content": "// Used by formatLine below",
+      "filePath": "hashline-edit/src/hash.ts",
+      "insertAfter": true,
+      "lineHashes": "38:io"
+    },
+    {
+      "content": "    // Resolve relative to the root of the first workspace folder.\n    // Falls back to treating path as absolute if no workspace open.",
+      "filePath": "hashline-edit/src/util.ts",
+      "lineHashes": "11:jm"
+    },
+    {
+      "content": "    // Register both hashline tools for GitHub Copilot",
+      "filePath": "hashline-edit/src/extension.ts",
+      "insertAfter": true,
+      "lineHashes": "5:tq"
+    }
+  ]
+}
+
+All 5 edits applied. Expected formatting:
+
+**Pre-edit (confirmation):**
+- `Edit [hash.ts -4+2](...#L14-L18), [-1](...#L32-L33), [+1](...#L39), [util.ts -1+2](...#L11-L12), [extension.ts +1](...#L6)`
+
+**Post-edit (completion):**
+- `Edited [hash.ts -4+2](...#L14-L16), [-1](...#L30), [+1](...#L36-L37), [util.ts -1+2](...#L11-L13), [extension.ts +1](...#L6)`
+
+Did the links match? Let me verify the edits worked and then revert: 
+
+Reading lines 1-47 of [hash.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L1-L48)
+Completed with input: {
+  "filePath": "hashline-edit/src/hash.ts",
+  "startLine": 1,
+  "endLine": 47
+}
+
+Edits applied correctly. Now reverting: 
+
+Edited [hash.ts -2+4](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L14-L18), [+2](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L31-L33), [-1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L40)  
+Edited [util.ts -2+1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts#L11-L12)  
+Edited [extension.ts -1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/extension.ts#L6)
+Completed with input: {
+  "edits": [
+    {
+      "content": "        // Process UTF-16 code units. For ASCII-dominated source code\n        // this is equivalent to byte-level FNV-1a. For multi-byte\n        // characters we hash both bytes of the code unit, which is\n        // fine — we only need distribution, not cryptographic strength.",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "14:jx,15:ws"
+    },
+    {
+      "content": "\n",
+      "filePath": "hashline-edit/src/hash.ts",
+      "insertAfter": true,
+      "lineHashes": "28:io"
+    },
+    {
+      "content": "",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "36:fd"
+    },
+    {
+      "content": "    // Resolve relative to first workspace folder",
+      "filePath": "hashline-edit/src/util.ts",
+      "lineHashes": "11:sk,12:fv"
+    },
+    {
+      "content": "",
+      "filePath": "hashline-edit/src/extension.ts",
+      "lineHashes": "6:zt"
+    }
+  ]
+}
+
+Reading all lines of [util.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/util.ts"
+}
+
+Reading all lines of [extension.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/extension.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/extension.ts"
+}
+
+Edited [util.ts -2+1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts#L11-L12)  
+Edited [extension.ts -1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/extension.ts#L6)
+Completed with input: {
+  "edits": [
+    {
+      "content": "    // Resolve relative to first workspace folder",
+      "filePath": "hashline-edit/src/util.ts",
+      "lineHashes": "11:sk,12:md"
+    },
+    {
+      "content": "",
+      "filePath": "hashline-edit/src/extension.ts",
+      "lineHashes": "6:kw"
+    }
+  ]
+}
+
+Reading all lines of [hash.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/hash.ts"
+}
+
+Edited [hash.ts -1](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L33)
+Completed with input: {
+  "edits": [
+    {
+      "content": "",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "33:dd"
+    }
+  ]
+}
+
+Reading all lines of [hash.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/hash.ts"
+}
+
+All reverted. The test exercised:
+- **Replace (shrink)**: 4 lines → 2 lines in hash.ts
+- **Delete**: 1 blank line in hash.ts
+- **Insert after**: +1 line in hash.ts
+- **Replace (expand)**: 1 line → 2 lines in util.ts
+- **Insert after**: +1 line in extension.ts
+- **Multi-chunk cumulative delta**: 3 chunks in hash.ts
+- **Multi-file**: hash.ts, util.ts, extension.ts
+
+The formatting should have shown comma-separated chunks with `-M+N` order and proper pre-edit vs post-edit line numbers.
+
+User: Looks good! Let's try underlining the linky things with <u>. For changes which will fail because hashes don't validate, I think we should have some indication in the commit message. Let's separate successful and failed edits, and put the failed ones in bold:
+Editing: [hash.ts <u>-2+4</u>](...), [<u>-1</u>](...)
+**Failing: [hash.ts <u>-8+3</u>](...)**
+
+GitHub Copilot: 
+
+  
+
+Reading lines 339-470 of [editTool.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L339-L471)
+Completed with input: {
+  "endLine": 470,
+  "filePath": "hashline-edit/src/editTool.ts",
+  "startLine": 339
+}
+
+Now I need to understand the validation logic. The `prepareInvocation` runs *before* the edit, so we need to pre-validate hashes there to know which will fail. Let me also check if there's access to the document from `prepareInvocation`. 
+
+Reading lines 86-115 of [editTool.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L86-L116)
+Completed with input: {
+  "endLine": 115,
+  "filePath": "hashline-edit/src/editTool.ts",
+  "startLine": 86
+}
+
+I need to pre-validate hashes in `prepareInvocation` to separate valid/failing edits. The chunk info needs a `valid` flag. Let me rewrite `prepareInvocation` and `formatChunks`:  
+
+Edited [editTool.ts -128+180](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L339-L519)
+Completed with input: {
+  "edits": [
+    {
+      "content": "    async prepareInvocation(\n        options: vscode.LanguageModelToolInvocationPrepareOptions<EditInput>,\n        _token: vscode.CancellationToken\n    ): Promise<vscode.PreparedToolInvocation> {\n        const edits = options.input.edits ?? [];\n\n        // Build per-file, per-edit chunk info with validation\n        type ChunkInfo = { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean; valid: boolean };\n        const fileChunks = new Map<string, ChunkInfo[]>();\n        for (const edit of edits) {\n            if (!fileChunks.has(edit.filePath)) {\n                fileChunks.set(edit.filePath, []);\n            }\n            const lineHashCount = edit.lineHashes === '0:' ? 0 : edit.lineHashes.split(',').length;\n            const contentLineCount = edit.content === '' ? 0 : edit.content.split('\\n').length;\n\n            let minLine = Infinity;\n            let maxLine = 0;\n            const lineHashPairs: { line: number; hash: string }[] = [];\n            if (edit.lineHashes !== '0:') {\n                for (const entry of edit.lineHashes.split(',')) {\n                    const colonIdx = entry.indexOf(':');\n                    if (colonIdx !== -1) {\n                        const line = parseInt(entry.substring(0, colonIdx), 10);\n                        const hash = entry.substring(colonIdx + 1);\n                        if (!isNaN(line) && line > 0) {\n                            minLine = Math.min(minLine, line);\n                            maxLine = Math.max(maxLine, line);\n                            lineHashPairs.push({ line, hash });\n                        }\n                    }\n                }\n            }\n\n            let added = 0;\n            let removed = 0;\n            const isDelete = edit.content === '' && !edit.insertAfter;\n            if (edit.insertAfter) {\n                added = contentLineCount;\n            } else if (edit.content === '') {\n                removed = lineHashCount;\n            } else {\n                added = contentLineCount;\n                removed = lineHashCount;\n            }\n\n            // Pre-validate hashes against the actual file\n            let valid = true;\n            try {\n                const uri = resolveFilePath(edit.filePath);\n                const doc = await vscode.workspace.openTextDocument(uri);\n                for (const { line, hash } of lineHashPairs) {\n                    if (line < 1 || line > doc.lineCount) {\n                        valid = false;\n                        break;\n                    }\n                    const actualHash = lineHash(doc.lineAt(line - 1).text);\n                    if (actualHash !== hash) {\n                        valid = false;\n                        break;\n                    }\n                }\n            } catch {\n                valid = false;\n            }\n\n            fileChunks.get(edit.filePath)!.push({ added, removed, minLine, maxLine, isDelete, isInsertAfter: !!edit.insertAfter, valid });\n        }\n\n        // Build per-file summary lines, separating valid and failing edits\n        const editedLines = this.formatChunks(fileChunks, 'Edited', true);\n        const editLines = this.formatChunks(fileChunks, 'Edit', false);\n\n        const invocationMsg = new vscode.MarkdownString(editedLines.join('  \\n'));\n        invocationMsg.isTrusted = true;\n        invocationMsg.supportHtml = true;\n\n        const confirmMsg = new vscode.MarkdownString(editLines.join('  \\n'));\n        confirmMsg.isTrusted = true;\n        confirmMsg.supportHtml = true;\n\n        return {\n            invocationMessage: invocationMsg,\n            confirmationMessages: {\n                title: 'Hashline Edit',\n                message: confirmMsg,\n            },\n        };\n    }\n\n    private formatChunks(\n        fileChunks: Map<string, { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean; valid: boolean }[]>,\n        verb: string,\n        isPostEdit: boolean\n    ): string[] {\n        const lines: string[] = [];\n\n        // Group all files' chunks into valid and failing\n        const validFileChunks = new Map<string, typeof fileChunks extends Map<string, infer V> ? V : never>();\n        const failingFileChunks = new Map<string, typeof fileChunks extends Map<string, infer V> ? V : never>();\n\n        for (const [filePath, chunks] of fileChunks) {\n            const valid = chunks.filter(c => c.valid);\n            const failing = chunks.filter(c => !c.valid);\n            if (valid.length > 0) { validFileChunks.set(filePath, valid); }\n            if (failing.length > 0) { failingFileChunks.set(filePath, failing); }\n        }\n\n        // Format valid edits\n        for (const [filePath, chunks] of validFileChunks) {\n            const formatted = this.formatFileChunks(filePath, chunks, isPostEdit);\n            lines.push(`${verb}: ${formatted}`);\n        }\n\n        // Format failing edits in bold\n        for (const [filePath, chunks] of failingFileChunks) {\n            const formatted = this.formatFileChunks(filePath, chunks, isPostEdit);\n            lines.push(`**Failing: ${formatted}**`);\n        }\n\n        return lines;\n    }\n\n    private formatFileChunks(\n        filePath: string,\n        chunks: { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean }[],\n        isPostEdit: boolean\n    ): string {\n        const basename = filePath.split('/').pop() ?? filePath;\n        const uri = resolveFilePath(filePath);\n        const parts: string[] = [];\n\n        // Sort chunks by minLine for correct cumulative delta tracking\n        const sortedChunks = [...chunks].sort((a, b) => a.minLine - b.minLine);\n        let cumulativeDelta = 0;\n\n        for (let i = 0; i < sortedChunks.length; i++) {\n            const chunk = sortedChunks[i];\n\n            // Build line fragment\n            let lineFragment = '';\n            if (chunk.minLine !== Infinity && chunk.minLine > 0) {\n                if (isPostEdit) {\n                    // Post-edit: adjust line numbers by cumulative delta from earlier chunks\n                    if (chunk.isDelete) {\n                        lineFragment = `#L${chunk.minLine + cumulativeDelta}`;\n                    } else if (chunk.isInsertAfter) {\n                        const postStart = chunk.maxLine + cumulativeDelta + 1;\n                        lineFragment = `#L${postStart}-L${postStart + chunk.added}`;\n                    } else {\n                        const adjustedMin = chunk.minLine + cumulativeDelta;\n                        lineFragment = `#L${adjustedMin}-L${adjustedMin + chunk.added}`;\n                    }\n                    cumulativeDelta += chunk.added - chunk.removed;\n                } else {\n                    // Pre-edit: show the original lines that will be affected\n                    if (chunk.isInsertAfter) {\n                        lineFragment = `#L${chunk.maxLine + 1}`;\n                    } else {\n                        lineFragment = `#L${chunk.minLine}-L${chunk.maxLine + 1}`;\n                    }\n                }\n            }\n\n            // Build diff string: -M+N order (removed then added), underlined\n            let diffStr = '';\n            if (chunk.removed > 0) { diffStr += `-${chunk.removed}`; }\n            if (chunk.added > 0) { diffStr += `+${chunk.added}`; }\n            if (!diffStr) { diffStr = '+0'; }\n\n            const linkUrl = `${uri.toString()}${lineFragment}`;\n            if (i === 0) {\n                parts.push(`[${basename} <u>${diffStr}</u>](${linkUrl})`);\n            } else {\n                parts.push(`[<u>${diffStr}</u>](${linkUrl})`);\n            }\n        }\n\n        return parts.join(', ');\n    }",
+      "filePath": "hashline-edit/src/editTool.ts",
+      "lineHashes": "339:oz,340:zg,341:bq,342:xr,343:wa,344:dd,345:sb,346:hf,347:lq,348:dn,349:mh,350:uo,351:qh,352:xp,353:dd,354:cu,355:oa,356:vn,357:zw,358:df,359:xg,360:gp,361:yj,362:or,363:gl,364:uo,365:dd,366:gp,367:ek,368:rq,369:nx,370:bw,371:uu,372:gu,373:ud,374:bw,375:gu,376:uo,377:dd,378:hr,379:cy,380:dd,381:iu,382:nz,383:ao,384:dd,385:lx,386:pn,387:dd,388:cu,389:fk,390:dd,391:ga,392:da,393:fa,394:zq,395:ri,396:yx,397:dv,398:ax,399:dd,400:xp,401:rb,402:vx,403:ht,404:cq,405:it,406:ps,407:sj,408:po,409:zz,410:dd,411:ld,412:bm,413:jz,414:dd,415:ah,416:ng,417:dd,418:vt,419:kg,420:zq,421:us,422:fq,423:su,424:et,425:bx,426:kq,427:sp,428:rl,429:va,430:aj,431:et,432:nl,433:xz,434:mf,435:gs,436:ip,437:rz,438:ka,439:vc,440:nc,441:aj,442:mt,443:ho,444:mf,445:or,446:gl,447:dd,448:cl,449:up,450:tc,451:xh,452:bw,453:dd,454:qa,455:ar,456:nl,457:hn,458:cu,459:nx,460:gl,461:uo,462:dd,463:sq,464:cy,465:bl,466:ax"
+    }
+  ]
+}
+
+Checked [](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts), no problems found
+
+Ran terminal command:  cd /Users/sethml/src/opencascade-rs/hashline-edit && time npm run compile 2>&1 && time npx vsce package --allow-missing-repository 2>&1
+
+Ran terminal command:  "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension /Users/sethml/src/opencascade-rs/hashline-edit/hashline-edit-1.0.0.vsix --force 2>&1
+
+Installed. Changes:
+
+1. **`<u>` underlines** on diff stats in links: `[hash.ts <u>-4+2</u>](...)`
+2. **Validation** in `prepareInvocation` — pre-checks hashes against actual file content
+3. **Separate lines** for valid vs failing: `Edit: [hash.ts <u>-2+4</u>](...)` and `**Failing: [hash.ts <u>-8+3</u>](...)**`
+4. `supportHtml = true` on MarkdownString for `<u>` rendering
+
+Reload the window, then we can test with some valid + invalid edits.
+
+User: OK, test with some edits.
+
+GitHub Copilot: Reading all lines of [hash.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/hash.ts"
+}
+
+Reading all lines of [util.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/util.ts"
+}
+
+Edited: [hash.ts <u>-4+2</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L14-L16), [<u>-1</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L30)  
+**Failing: [hash.ts <u>-2+2</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L8-L10)**  
+**Failing: [util.ts <u>-1+1</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/util.ts#L11-L12)**
+Completed with input: {
+  "edits": [
+    {
+      "content": "        // Process UTF-16 code units individually.\n        // For ASCII this matches byte-level FNV-1a.",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "14:lv,15:nk,16:xj,17:gk"
+    },
+    {
+      "content": "    // Workspace-relative path resolution",
+      "filePath": "hashline-edit/src/util.ts",
+      "lineHashes": "11:xx"
+    },
+    {
+      "content": "",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "32:dd"
+    },
+    {
+      "content": "const OFFSET = 2166136261;\nconst PRIME = 16777619;",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "8:aa,9:bb"
+    }
+  ]
+}
+
+Perfect! The confirmation should have shown:
+- **Edit:** with 2 valid chunks in hash.ts with underlined diff stats
+- **Failing:** in bold with 2 invalid edits (util.ts and hash.ts lines 8-9)
+
+Let me verify the results and revert: 
+
+Reading all lines of [hash.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts)
+Completed with input: {
+  "filePath": "hashline-edit/src/hash.ts"
+}
+
+Edited: [hash.ts <u>-2+4</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L14-L18), [<u>+2</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L31-L33)
+Completed with input: {
+  "edits": [
+    {
+      "content": "        // Process UTF-16 code units. For ASCII-dominated source code\n        // this is equivalent to byte-level FNV-1a. For multi-byte\n        // characters we hash both bytes of the code unit, which is\n        // fine — we only need distribution, not cryptographic strength.",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "14:jx,15:ws"
+    },
+    {
+      "content": "\n",
+      "filePath": "hashline-edit/src/hash.ts",
+      "insertAfter": true,
+      "lineHashes": "28:io"
+    }
+  ]
+}
+
+Reverted. The test showed:
+- **2 valid edits** applied successfully (hash.ts `-4+2` and `-1`)
+- **2 invalid edits** rejected due to hash mismatches (util.ts `-1+1` and hash.ts `-2+2`)
+- Confirmation should have displayed valid edits under "Edit:" and failing ones under "**Failing:**" in bold
+- All diff stats should appear underlined with `<u>` tags
+
+Did the formatting display correctly with underlines and bold for failing edits?
+
+User: It appeared correctly, except that <u> doesn't seem to work - it shows up literally in pre-edit messages,a nd doesn't have an effect in post-edit messages. Remove the underlining and commit.
+
+GitHub Copilot: Reading lines 400-520 of [editTool.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L400-L521)
+Completed with input: {
+  "endLine": 520,
+  "filePath": "hashline-edit/src/editTool.ts",
+  "startLine": 400
+}
+
+Reading lines 408-427 of [editTool.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L408-L428)
+Completed with input: {
+  "endLine": 427,
+  "filePath": "hashline-edit/src/editTool.ts",
+  "startLine": 408
+}
+
+Edited: [editTool.ts <u>-3+2</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L412-L414), [<u>-3+2</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L415-L417), [<u>-1+1</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L501-L502), [<u>-3+3</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts#L509-L512)
+Completed with input: {
+  "edits": [
+    {
+      "content": "        const invocationMsg = new vscode.MarkdownString(editedLines.join('  \\n'));\n        invocationMsg.isTrusted = true;",
+      "filePath": "hashline-edit/src/editTool.ts",
+      "lineHashes": "412:lx,413:pn,414:cq"
+    },
+    {
+      "content": "        const confirmMsg = new vscode.MarkdownString(editLines.join('  \\n'));\n        confirmMsg.isTrusted = true;",
+      "filePath": "hashline-edit/src/editTool.ts",
+      "lineHashes": "416:cu,417:fk,418:qr"
+    },
+    {
+      "content": "            // Build diff string: -M+N order (removed then added)",
+      "filePath": "hashline-edit/src/editTool.ts",
+      "lineHashes": "503:qk"
+    },
+    {
+      "content": "                parts.push(`[${basename} ${diffStr}](${linkUrl})`);\n            } else {\n                parts.push(`[${diffStr}](${linkUrl})`);",
+      "filePath": "hashline-edit/src/editTool.ts",
+      "lineHashes": "511:ig,512:ud,513:cj"
+    }
+  ]
+}
+
+Checked [](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/editTool.ts), no problems found
+
+Ran terminal command:  cd /Users/sethml/src/opencascade-rs/hashline-edit && time npm run compile 2>&1 && time npx vsce package --allow-missing-repository 2>&1
+
+Ran terminal command:  "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension /Users/sethml/src/opencascade-rs/hashline-edit/hashline-edit-1.0.0.vsix --force 2>&1
+
+Ran terminal command:  cd /Users/sethml/src/opencascade-rs && git diff --stat hashline-edit/ 2>&1
+
+Ran terminal command:  git diff hashline-edit/src/hash.ts 2>&1 | head -20
+
+Reading lines 28-35 of [hash.ts](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L28-L36)
+Completed with input: {
+  "endLine": 35,
+  "filePath": "hashline-edit/src/hash.ts",
+  "startLine": 28
+}
+
+Edited: [hash.ts <u>-1</u>](file:///Users/sethml/src/opencascade-rs/hashline-edit/src/hash.ts#L33)
+Completed with input: {
+  "edits": [
+    {
+      "content": "",
+      "filePath": "hashline-edit/src/hash.ts",
+      "lineHashes": "33:dd"
+    }
+  ]
+}
+
+Ran terminal command:  cd /Users/sethml/src/opencascade-rs && git add hashline-edit/src/editTool.ts hashline-edit/src/hash.ts && git commit -m "hashline-edit: improve confirmation/completion message formatting
+
+- Pre-validate hashes in prepareInvocation to separate valid/failing edits
+- Show valid edits as 'Edit:' or 'Edited:' lines
+- Show failing edits in bold as '**Failing: ...**'
+- Use -M+N diff order (removed then added)
+- Comma-separate multiple chunks: [hash.ts -4+2](...), [-1](...)
+- Pre-edit insert-after now points to line after anchor (#L39 vs #L38-L39)
+- Removed <u> tags (not supported in markdown rendering)" 2>&1
+
+Done. Committed the changes:
+
+- Pre-validation of hashes in `prepareInvocation` so we can separate valid/failing edits before execution
+- Valid edits shown as `Edit: [hash.ts -4+2](...)` 
+- Failing edits shown as `**Failing: [hash.ts -8+3](...)**` in bold
+- Diff format changed to `-M+N` (removed then added)
+- Chunks comma-separated for clarity
+- Removed `<u>` tags (not supported in VS Code markdown)
+
+The extension now clearly indicates which edits will succeed vs fail in the confirmation message.

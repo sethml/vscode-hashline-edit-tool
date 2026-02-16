@@ -342,8 +342,9 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
     ): Promise<vscode.PreparedToolInvocation> {
         const edits = options.input.edits ?? [];
 
-        // Build per-file, per-edit chunk info
-        const fileChunks = new Map<string, { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean }[]>();
+        // Build per-file, per-edit chunk info with validation
+        type ChunkInfo = { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean; valid: boolean };
+        const fileChunks = new Map<string, ChunkInfo[]>();
         for (const edit of edits) {
             if (!fileChunks.has(edit.filePath)) {
                 fileChunks.set(edit.filePath, []);
@@ -353,12 +354,18 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
 
             let minLine = Infinity;
             let maxLine = 0;
+            const lineHashPairs: { line: number; hash: string }[] = [];
             if (edit.lineHashes !== '0:') {
                 for (const entry of edit.lineHashes.split(',')) {
-                    const line = parseInt(entry.split(':')[0], 10);
-                    if (!isNaN(line) && line > 0) {
-                        minLine = Math.min(minLine, line);
-                        maxLine = Math.max(maxLine, line);
+                    const colonIdx = entry.indexOf(':');
+                    if (colonIdx !== -1) {
+                        const line = parseInt(entry.substring(0, colonIdx), 10);
+                        const hash = entry.substring(colonIdx + 1);
+                        if (!isNaN(line) && line > 0) {
+                            minLine = Math.min(minLine, line);
+                            maxLine = Math.max(maxLine, line);
+                            lineHashPairs.push({ line, hash });
+                        }
                     }
                 }
             }
@@ -375,10 +382,30 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
                 removed = lineHashCount;
             }
 
-            fileChunks.get(edit.filePath)!.push({ added, removed, minLine, maxLine, isDelete, isInsertAfter: !!edit.insertAfter });
+            // Pre-validate hashes against the actual file
+            let valid = true;
+            try {
+                const uri = resolveFilePath(edit.filePath);
+                const doc = await vscode.workspace.openTextDocument(uri);
+                for (const { line, hash } of lineHashPairs) {
+                    if (line < 1 || line > doc.lineCount) {
+                        valid = false;
+                        break;
+                    }
+                    const actualHash = lineHash(doc.lineAt(line - 1).text);
+                    if (actualHash !== hash) {
+                        valid = false;
+                        break;
+                    }
+                }
+            } catch {
+                valid = false;
+            }
+
+            fileChunks.get(edit.filePath)!.push({ added, removed, minLine, maxLine, isDelete, isInsertAfter: !!edit.insertAfter, valid });
         }
 
-        // Build per-file summary lines with per-chunk detail
+        // Build per-file summary lines, separating valid and failing edits
         const editedLines = this.formatChunks(fileChunks, 'Edited', true);
         const editLines = this.formatChunks(fileChunks, 'Edit', false);
 
@@ -398,70 +425,93 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
     }
 
     private formatChunks(
-        fileChunks: Map<string, { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean }[]>,
+        fileChunks: Map<string, { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean; valid: boolean }[]>,
         verb: string,
         isPostEdit: boolean
     ): string[] {
         const lines: string[] = [];
+
+        // Group all files' chunks into valid and failing
+        const validFileChunks = new Map<string, typeof fileChunks extends Map<string, infer V> ? V : never>();
+        const failingFileChunks = new Map<string, typeof fileChunks extends Map<string, infer V> ? V : never>();
+
         for (const [filePath, chunks] of fileChunks) {
-            const basename = filePath.split('/').pop() ?? filePath;
-            const uri = resolveFilePath(filePath);
-            const parts: string[] = [];
+            const valid = chunks.filter(c => c.valid);
+            const failing = chunks.filter(c => !c.valid);
+            if (valid.length > 0) { validFileChunks.set(filePath, valid); }
+            if (failing.length > 0) { failingFileChunks.set(filePath, failing); }
+        }
 
-            // Sort chunks by minLine for correct cumulative delta tracking
-            const sortedChunks = [...chunks].sort((a, b) => a.minLine - b.minLine);
-            let cumulativeDelta = 0;
+        // Format valid edits
+        for (const [filePath, chunks] of validFileChunks) {
+            const formatted = this.formatFileChunks(filePath, chunks, isPostEdit);
+            lines.push(`${verb}: ${formatted}`);
+        }
 
-            for (let i = 0; i < sortedChunks.length; i++) {
-                const chunk = sortedChunks[i];
+        // Format failing edits in bold
+        for (const [filePath, chunks] of failingFileChunks) {
+            const formatted = this.formatFileChunks(filePath, chunks, isPostEdit);
+            lines.push(`**Failing: ${formatted}**`);
+        }
 
-                // Build line fragment
-                let lineFragment = '';
-                if (chunk.minLine !== Infinity && chunk.minLine > 0) {
-                    if (isPostEdit) {
-                        // Post-edit: adjust line numbers by cumulative delta from earlier chunks
-                        if (chunk.isDelete) {
-                            // Deleted lines are gone; point to where they were
-                            lineFragment = `#L${chunk.minLine + cumulativeDelta}`;
-                        } else if (chunk.isInsertAfter) {
-                            // New lines start after the anchor line
-                            const postStart = chunk.maxLine + cumulativeDelta + 1;
-                            lineFragment = `#L${postStart}-L${postStart + chunk.added}`;
-                        } else {
-                            // Replace: new content sits at the adjusted start position
-                            const adjustedMin = chunk.minLine + cumulativeDelta;
-                            lineFragment = `#L${adjustedMin}-L${adjustedMin + chunk.added}`;
-                        }
-                        cumulativeDelta += chunk.added - chunk.removed;
+        return lines;
+    }
+
+    private formatFileChunks(
+        filePath: string,
+        chunks: { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean }[],
+        isPostEdit: boolean
+    ): string {
+        const basename = filePath.split('/').pop() ?? filePath;
+        const uri = resolveFilePath(filePath);
+        const parts: string[] = [];
+
+        // Sort chunks by minLine for correct cumulative delta tracking
+        const sortedChunks = [...chunks].sort((a, b) => a.minLine - b.minLine);
+        let cumulativeDelta = 0;
+
+        for (let i = 0; i < sortedChunks.length; i++) {
+            const chunk = sortedChunks[i];
+
+            // Build line fragment
+            let lineFragment = '';
+            if (chunk.minLine !== Infinity && chunk.minLine > 0) {
+                if (isPostEdit) {
+                    // Post-edit: adjust line numbers by cumulative delta from earlier chunks
+                    if (chunk.isDelete) {
+                        lineFragment = `#L${chunk.minLine + cumulativeDelta}`;
+                    } else if (chunk.isInsertAfter) {
+                        const postStart = chunk.maxLine + cumulativeDelta + 1;
+                        lineFragment = `#L${postStart}-L${postStart + chunk.added}`;
                     } else {
-                        // Pre-edit: show the original lines that will be affected
-                        if (chunk.isInsertAfter) {
-                            // Just highlight the anchor line
-                            lineFragment = `#L${chunk.minLine}-L${chunk.minLine + 1}`;
-                        } else {
-                            // Highlight the lines being replaced or deleted
-                            lineFragment = `#L${chunk.minLine}-L${chunk.maxLine + 1}`;
-                        }
+                        const adjustedMin = chunk.minLine + cumulativeDelta;
+                        lineFragment = `#L${adjustedMin}-L${adjustedMin + chunk.added}`;
                     }
-                }
-
-                // Build diff string: +N-M with no space
-                let diffStr = '';
-                if (chunk.added > 0) { diffStr += `+${chunk.added}`; }
-                if (chunk.removed > 0) { diffStr += `-${chunk.removed}`; }
-                if (!diffStr) { diffStr = '+0'; }
-
-                const linkUrl = `${uri.toString()}${lineFragment}`;
-                if (i === 0) {
-                    // First chunk: include filename
-                    parts.push(`[${basename} ${diffStr}](${linkUrl})`);
+                    cumulativeDelta += chunk.added - chunk.removed;
                 } else {
-                    parts.push(`[${diffStr}](${linkUrl})`);
+                    // Pre-edit: show the original lines that will be affected
+                    if (chunk.isInsertAfter) {
+                        lineFragment = `#L${chunk.maxLine + 1}`;
+                    } else {
+                        lineFragment = `#L${chunk.minLine}-L${chunk.maxLine + 1}`;
+                    }
                 }
             }
 
-            lines.push(`${verb} ${parts.join(' ')}`);
+            // Build diff string: -M+N order (removed then added)
+            let diffStr = '';
+            if (chunk.removed > 0) { diffStr += `-${chunk.removed}`; }
+            if (chunk.added > 0) { diffStr += `+${chunk.added}`; }
+            if (!diffStr) { diffStr = '+0'; }
+
+            const linkUrl = `${uri.toString()}${lineFragment}`;
+            if (i === 0) {
+                parts.push(`[${basename} ${diffStr}](${linkUrl})`);
+            } else {
+                parts.push(`[${diffStr}](${linkUrl})`);
+            }
         }
-        return lines;
+
+        return parts.join(', ');
     }
 }

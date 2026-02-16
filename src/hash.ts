@@ -29,6 +29,7 @@ export function fnv1a32(data: string): number {
     return hash >>> 0;
 }
 
+
 export function lineHash(line: string): string {
     const h = fnv1a32(line);
     const letter1 = String.fromCharCode(97 + (h % 26));
