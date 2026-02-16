@@ -209,6 +209,7 @@ async function applyEditsToFile(
             // Auto-save the document so changes persist to disk
             await document.save();
         }
+    }
 
     return results;
 }
@@ -293,16 +294,53 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
         options: vscode.LanguageModelToolInvocationPrepareOptions<EditInput>,
         _token: vscode.CancellationToken
     ): Promise<vscode.PreparedToolInvocation> {
-        const editCount = options.input.edits?.length ?? 0;
-        const files = new Set(options.input.edits?.map((e) => e.filePath) ?? []);
-        const fileCount = files.size;
+        const edits = options.input.edits ?? [];
+
+        // Compute per-file line stats from the edit operations
+        const fileStats = new Map<string, { added: number; removed: number }>();
+        for (const edit of edits) {
+            const stats = fileStats.get(edit.filePath) ?? { added: 0, removed: 0 };
+            const lineHashCount = edit.lineHashes === '0:' ? 0 : edit.lineHashes.split(',').length;
+            const contentLineCount = edit.content === '' ? 0 : edit.content.split('\n').length;
+
+            if (edit.insertAfter) {
+                stats.added += contentLineCount;
+            } else if (edit.content === '') {
+                stats.removed += lineHashCount;
+            } else {
+                stats.added += contentLineCount;
+                stats.removed += lineHashCount;
+            }
+            fileStats.set(edit.filePath, stats);
+        }
+
+        // Build per-file "Edited filename +N-M" lines
+        const lines: string[] = [];
+        for (const [filePath, stats] of fileStats) {
+            const basename = filePath.split('/').pop() ?? filePath;
+            const uri = resolveFilePath(filePath);
+
+            let diffStr = '';
+            if (stats.added > 0) {
+                diffStr += ` <span style="color:var(--vscode-terminal-ansiGreen)">+${stats.added}</span>`;
+            }
+            if (stats.removed > 0) {
+                diffStr += `<span style="color:var(--vscode-terminal-ansiRed)">-${stats.removed}</span>`;
+            }
+
+            lines.push(`Edited [${basename}](${uri.toString()})${diffStr}`);
+        }
+
+        const msg = new vscode.MarkdownString(lines.join('\n\n'));
+        msg.supportHtml = true;
+        msg.isTrusted = true;
 
         return {
-            invocationMessage: `Applying ${editCount} edit(s) to ${fileCount} file(s)`,
+            invocationMessage: msg,
             confirmationMessages: {
                 title: 'Hashline Edit',
                 message: new vscode.MarkdownString(
-                    `Apply ${editCount} edit(s) to ${fileCount} file(s)?`
+                    `Apply ${edits.length} edit(s) to ${fileStats.size} file(s)?`
                 ),
             },
         };
