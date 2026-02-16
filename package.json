@@ -5,6 +5,11 @@
   "version": "0.1.0",
   "publisher": "sethml",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sethml/opencascade-rs",
+    "directory": "hashline-edit"
+  },
   "engines": {
     "vscode": "^1.99.0"
   },
@@ -16,7 +21,9 @@
       {
         "name": "hashline_read",
         "tags": ["file", "read", "editor"],
+        "canBeReferencedInPrompt": true,
         "displayName": "Hashline Read",
+        "userDescription": "Read file lines with content hashes for verified editing",
         "toolReferenceName": "hashlineRead",
         "modelDescription": "Read lines from a file with line numbers and content hashes. Each line is formatted as `{lineNumber}:{twoLetterHash}|{content}`. Use these hashes with `hashline_edit` to make verified edits. The hash is a 2-letter content fingerprint — if the file changes, the hashes change, and edits will be safely rejected.",
         "inputSchema": {
@@ -41,7 +48,9 @@
       {
         "name": "hashline_edit",
         "tags": ["file", "edit", "editor"],
+        "canBeReferencedInPrompt": true,
         "displayName": "Hashline Edit",
+        "userDescription": "Edit files using hash-verified line references",
         "toolReferenceName": "hashlineEdit",
         "modelDescription": "Edit file(s) by specifying line ranges with content hashes from `hashline_read`. Supports replace, insert-after, and delete. Each edit specifies `lineHashes` (comma-separated `{line}:{hash}` pairs) and `content` (new text). Set `content` to empty string to delete lines. Set `insertAfter: true` to insert after the anchor line. Multiple edits can be batched; successful edits are kept even if others fail.",
         "inputSchema": {

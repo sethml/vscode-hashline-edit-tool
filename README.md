@@ -37,33 +37,21 @@ safely rejected.
 
 ## Installation
 
-### From Source (Development)
+### From Source
 
 1. Clone or copy the `hashline-edit/` directory.
-2. Install dependencies and compile:
+2. Install dependencies, compile, and package:
    ```sh
    cd hashline-edit
    npm install
    npm run compile
-   ```
-3. Open the `hashline-edit/` folder in VS Code and press **F5** to launch the
-   Extension Development Host.
-
-### As a Packaged Extension
-
-1. Install `@vscode/vsce` if you don't have it:
-   ```sh
    npm install -g @vscode/vsce
-   ```
-2. Package the extension:
-   ```sh
-   cd hashline-edit
    vsce package
    ```
-3. Install the `.vsix` in VS Code:
-   - Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
-   - Run **Extensions: Install from VSIX...**
-   - Select the generated `hashline-edit-0.1.0.vsix`
+3. In VS Code, open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+   and run **Extensions: Install from VSIX...**
+4. Select the generated `hashline-edit-0.1.0.vsix` file.
+5. Reload VS Code when prompted.
 
 ### Requirements
 
