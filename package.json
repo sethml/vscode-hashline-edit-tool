@@ -1,0 +1,91 @@
+{
+  "name": "hashline-edit",
+  "displayName": "Hashline Edit",
+  "description": "Hash-anchored line editing tools for GitHub Copilot — read and edit files using line numbers with content hashes for reliable, token-efficient edits.",
+  "version": "0.1.0",
+  "publisher": "sethml",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": ["AI", "Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languageModelTools": [
+      {
+        "name": "hashline_read",
+        "tags": ["file", "read", "editor"],
+        "displayName": "Hashline Read",
+        "toolReferenceName": "hashlineRead",
+        "modelDescription": "Read lines from a file with line numbers and content hashes. Each line is formatted as `{lineNumber}:{twoLetterHash}|{content}`. Use these hashes with `hashline_edit` to make verified edits. The hash is a 2-letter content fingerprint — if the file changes, the hashes change, and edits will be safely rejected.",
+        "inputSchema": {
+          "type": "object",
+          "required": ["filePath"],
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the file to read."
+            },
+            "startLine": {
+              "type": "number",
+              "description": "First line to read (1-based). Defaults to 1."
+            },
+            "endLine": {
+              "type": "number",
+              "description": "Last line to read (1-based, inclusive). Defaults to last line of file."
+            }
+          }
+        }
+      },
+      {
+        "name": "hashline_edit",
+        "tags": ["file", "edit", "editor"],
+        "displayName": "Hashline Edit",
+        "toolReferenceName": "hashlineEdit",
+        "modelDescription": "Edit file(s) by specifying line ranges with content hashes from `hashline_read`. Supports replace, insert-after, and delete. Each edit specifies `lineHashes` (comma-separated `{line}:{hash}` pairs) and `content` (new text). Set `content` to empty string to delete lines. Set `insertAfter: true` to insert after the anchor line. Multiple edits can be batched; successful edits are kept even if others fail.",
+        "inputSchema": {
+          "type": "object",
+          "required": ["edits"],
+          "properties": {
+            "edits": {
+              "type": "array",
+              "description": "Array of edit operations to apply.",
+              "items": {
+                "type": "object",
+                "required": ["filePath", "lineHashes", "content"],
+                "properties": {
+                  "filePath": {
+                    "type": "string",
+                    "description": "Absolute or workspace-relative path to the file."
+                  },
+                  "lineHashes": {
+                    "type": "string",
+                    "description": "Comma-separated line:hash pairs copied from hashline_read output, e.g. '10:qk,11:ab,12:fn'. For insert at file start, use '0:'."
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "New content to replace the identified lines. Use empty string to delete. May contain newlines for multi-line content."
+                  },
+                  "insertAfter": {
+                    "type": "boolean",
+                    "description": "If true, insert content after the anchor line instead of replacing it. lineHashes should identify the anchor line."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.99.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}
