@@ -52,15 +52,24 @@ export class HashlineReadTool implements vscode.LanguageModelTool<ReadInput> {
         _token: vscode.CancellationToken
     ): Promise<vscode.PreparedToolInvocation> {
         const { filePath, startLine, endLine } = options.input;
+        const basename = filePath.split('/').pop() ?? filePath;
         const uri = resolveFilePath(filePath);
-        const range = startLine
-            ? endLine
-                ? `lines ${startLine}-${endLine}`
-                : `from line ${startLine}`
-            : 'all lines';
+
+        // Build line fragment for link
+        let lineFragment = '';
+        let rangeText = 'all lines';
+        if (startLine) {
+            if (endLine) {
+                lineFragment = `#L${startLine}-L${endLine}`;
+                rangeText = `lines ${startLine}-${endLine}`;
+            } else {
+                lineFragment = `#L${startLine}`;
+                rangeText = `from line ${startLine}`;
+            }
+        }
 
         const msg = new vscode.MarkdownString(
-            `Reading ${range} of [](${uri.toString()})`
+            `Reading ${rangeText} of [${basename}](${uri.toString()}${lineFragment})`
         );
         msg.isTrusted = true;
 

@@ -18,6 +18,8 @@ interface EditResult {
     lineHashes: string;
     status: 'ok' | 'error';
     error?: string;
+    startLine?: number;
+    endLine?: number;
 }
 
 /**
@@ -69,7 +71,7 @@ async function applyEditsToFile(
                     range: new vscode.Range(0, 0, 0, 0),
                     newText,
                 });
-                results.push({ filePath: op.filePath, lineHashes: op.lineHashes, status: 'ok' });
+                results.push({ filePath: op.filePath, lineHashes: op.lineHashes, status: 'ok', startLine: 1, endLine: 1 });
                 continue;
             } else {
                 results.push({
@@ -183,7 +185,7 @@ async function applyEditsToFile(
             });
         }
 
-        results.push({ filePath: op.filePath, lineHashes: op.lineHashes, status: 'ok' });
+        results.push({ filePath: op.filePath, lineHashes: op.lineHashes, status: 'ok', startLine: firstLine, endLine: lastLine });
     }
 
     // Sort valid edits bottom-up (by start line descending) so earlier edits
@@ -272,14 +274,57 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
         const applied = allResults.filter((r) => r.status === 'ok').length;
         const failed = allResults.filter((r) => r.status === 'error').length;
 
+        // Compute per-file post-edit line ranges for the result summary
+        const fileRanges = new Map<string, { start: number; end: number; added: number; removed: number }>();
+        for (const result of allResults) {
+            if (result.status !== 'ok' || !result.startLine || !result.endLine) {
+                continue;
+            }
+            const existing = fileRanges.get(result.filePath);
+            if (existing) {
+                existing.start = Math.min(existing.start, result.startLine);
+                existing.end = Math.max(existing.end, result.endLine);
+            } else {
+                fileRanges.set(result.filePath, { start: result.startLine, end: result.endLine, added: 0, removed: 0 });
+            }
+        }
+        // Accumulate per-file add/remove counts from input
+        for (const edit of edits) {
+            const range = fileRanges.get(edit.filePath);
+            if (!range) { continue; }
+            const lineHashCount = edit.lineHashes === '0:' ? 0 : edit.lineHashes.split(',').length;
+            const contentLineCount = edit.content === '' ? 0 : edit.content.split('\n').length;
+            if (edit.insertAfter) {
+                range.added += contentLineCount;
+            } else if (edit.content === '') {
+                range.removed += lineHashCount;
+            } else {
+                range.added += contentLineCount;
+                range.removed += lineHashCount;
+            }
+        }
+
         // Build a compact result object
         if (failed === 0 && applied === 1) {
+            const r = allResults.find((r) => r.status === 'ok')!;
+            const range = fileRanges.get(r.filePath);
+            const postEnd = range ? range.start + (range.end - range.start) + range.added - range.removed : undefined;
             return new vscode.LanguageModelToolResult([
-                new vscode.LanguageModelTextPart(JSON.stringify({ status: 'ok', applied: 1 })),
+                new vscode.LanguageModelTextPart(JSON.stringify({
+                    status: 'ok', applied: 1,
+                    ...(range ? { file: r.filePath, startLine: range.start, endLine: Math.max(range.start, postEnd!) } : {}),
+                })),
             ]);
         }
 
         const response: Record<string, unknown> = { applied, failed };
+        // Add per-file ranges
+        const files: Record<string, unknown>[] = [];
+        for (const [fp, range] of fileRanges) {
+            const postEnd = range.start + (range.end - range.start) + range.added - range.removed;
+            files.push({ file: fp, startLine: range.start, endLine: Math.max(range.start, postEnd) });
+        }
+        if (files.length > 0) { response.files = files; }
         if (failed > 0) {
             response.errors = allResults
                 .filter((r) => r.status === 'error')
@@ -297,33 +342,44 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
     ): Promise<vscode.PreparedToolInvocation> {
         const edits = options.input.edits ?? [];
 
-        // Compute per-file line stats from the edit operations
-        const fileStats = new Map<string, { added: number; removed: number }>();
+        // Compute per-file line stats and ranges from the edit operations
+        const fileInfo = new Map<string, { added: number; removed: number; minLine: number; maxLine: number }>();
         for (const edit of edits) {
-            const stats = fileStats.get(edit.filePath) ?? { added: 0, removed: 0 };
+            const info = fileInfo.get(edit.filePath) ?? { added: 0, removed: 0, minLine: Infinity, maxLine: 0 };
             const lineHashCount = edit.lineHashes === '0:' ? 0 : edit.lineHashes.split(',').length;
             const contentLineCount = edit.content === '' ? 0 : edit.content.split('\n').length;
 
-            if (edit.insertAfter) {
-                stats.added += contentLineCount;
-            } else if (edit.content === '') {
-                stats.removed += lineHashCount;
-            } else {
-                stats.added += contentLineCount;
-                stats.removed += lineHashCount;
+            // Parse line numbers for range
+            if (edit.lineHashes !== '0:') {
+                for (const entry of edit.lineHashes.split(',')) {
+                    const line = parseInt(entry.split(':')[0], 10);
+                    if (!isNaN(line) && line > 0) {
+                        info.minLine = Math.min(info.minLine, line);
+                        info.maxLine = Math.max(info.maxLine, line);
+                    }
+                }
             }
-            fileStats.set(edit.filePath, stats);
+
+            if (edit.insertAfter) {
+                info.added += contentLineCount;
+            } else if (edit.content === '') {
+                info.removed += lineHashCount;
+            } else {
+                info.added += contentLineCount;
+                info.removed += lineHashCount;
+            }
+            fileInfo.set(edit.filePath, info);
         }
 
         // Build per-file summary lines
-        const summaryLines = this.formatFileStats(fileStats);
+        const summaryLines = this.formatFileStats(fileInfo);
         const summaryText = summaryLines.join('  \n');
 
         const invocationMsg = new vscode.MarkdownString(summaryText);
         invocationMsg.isTrusted = true;
 
         const confirmMsg = new vscode.MarkdownString(
-            summaryLines.join('  \n') + '\n\nProceed?'
+            summaryLines.join('  \n')
         );
         confirmMsg.isTrusted = true;
 
@@ -336,20 +392,29 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
         };
     }
 
-    private formatFileStats(fileStats: Map<string, { added: number; removed: number }>): string[] {
+    private formatFileStats(fileInfo: Map<string, { added: number; removed: number; minLine: number; maxLine: number }>): string[] {
         const lines: string[] = [];
-        for (const [filePath, stats] of fileStats) {
+        for (const [filePath, info] of fileInfo) {
+            const basename = filePath.split('/').pop() ?? filePath;
             const uri = resolveFilePath(filePath);
 
-            let diffStr = '';
-            if (stats.added > 0) {
-                diffStr += ` +${stats.added}`;
-            }
-            if (stats.removed > 0) {
-                diffStr += ` -${stats.removed}`;
+            // Build line fragment for link
+            let lineFragment = '';
+            if (info.minLine !== Infinity && info.minLine > 0) {
+                lineFragment = info.minLine === info.maxLine
+                    ? `#L${info.minLine}`
+                    : `#L${info.minLine}-L${info.maxLine}`;
             }
 
-            lines.push(`Edited [](${uri.toString()})${diffStr}`);
+            let diffStr = '';
+            if (info.added > 0) {
+                diffStr += ` +${info.added}`;
+            }
+            if (info.removed > 0) {
+                diffStr += ` -${info.removed}`;
+            }
+
+            lines.push(`Edited [${basename}](${uri.toString()}${lineFragment})${diffStr}`);
         }
         return lines;
     }
