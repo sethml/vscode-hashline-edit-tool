@@ -339,7 +339,6 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
     private formatFileStats(fileStats: Map<string, { added: number; removed: number }>): string[] {
         const lines: string[] = [];
         for (const [filePath, stats] of fileStats) {
-            const basename = filePath.split('/').pop() ?? filePath;
             const uri = resolveFilePath(filePath);
 
             let diffStr = '';
@@ -347,10 +346,10 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
                 diffStr += ` +${stats.added}`;
             }
             if (stats.removed > 0) {
-                diffStr += `-${stats.removed}`;
+                diffStr += ` -${stats.removed}`;
             }
 
-            lines.push(`Edited [${basename}](${uri.toString()})${diffStr}`);
+            lines.push(`Edited [](${uri.toString()})${diffStr}`);
         }
         return lines;
     }
