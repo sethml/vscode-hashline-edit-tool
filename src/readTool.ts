@@ -55,15 +55,15 @@ export class HashlineReadTool implements vscode.LanguageModelTool<ReadInput> {
         const basename = filePath.split('/').pop() ?? filePath;
         const uri = resolveFilePath(filePath);
 
-        // Build line fragment for link
+        // Build line fragment for link (end+1 so VS Code highlights the full range)
         let lineFragment = '';
         let rangeText = 'all lines';
         if (startLine) {
             if (endLine) {
-                lineFragment = `#L${startLine}-L${endLine}`;
+                lineFragment = `#L${startLine}-L${endLine + 1}`;
                 rangeText = `lines ${startLine}-${endLine}`;
             } else {
-                lineFragment = `#L${startLine}`;
+                lineFragment = `#L${startLine}-L${startLine + 1}`;
                 rangeText = `from line ${startLine}`;
             }
         }

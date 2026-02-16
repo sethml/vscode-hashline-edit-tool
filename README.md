@@ -196,7 +196,7 @@ changed" list in the chat UI. This is because VS Code's stable extension API
 does not provide a way for tools (registered via `vscode.lm.registerTool`) to
 report file edits back into the chat response stream.
 
-The proper fix requires the **`chatParticipantAdditions` proposed API**, which
+The proper fix requires the **[`chatParticipantAdditions` proposed API](https://code.visualstudio.com/api/references/proposed/chatParticipantAdditions)**, which
 includes:
 
 - `ChatResponseTextEditPart` — push `TextEdit[]` directly into the chat
@@ -214,6 +214,7 @@ As a workaround, `hashline_edit` currently auto-saves files after editing so
 changes persist to disk immediately. Edits are visible via `git diff` and in
 VS Code's Source Control view, even though they don't appear in the chat UI's
 change list.
+
 
 ## License
 

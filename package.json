@@ -2,7 +2,7 @@
   "name": "hashline-edit",
   "displayName": "Hashline Edit",
   "description": "Hash-anchored line editing tools for GitHub Copilot — read and edit files using line numbers with content hashes for reliable, token-efficient edits.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "publisher": "sethml",
   "license": "MIT",
   "repository": {

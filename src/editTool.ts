@@ -342,45 +342,50 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
     ): Promise<vscode.PreparedToolInvocation> {
         const edits = options.input.edits ?? [];
 
-        // Compute per-file line stats and ranges from the edit operations
-        const fileInfo = new Map<string, { added: number; removed: number; minLine: number; maxLine: number }>();
+        // Build per-file, per-edit chunk info
+        const fileChunks = new Map<string, { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean }[]>();
         for (const edit of edits) {
-            const info = fileInfo.get(edit.filePath) ?? { added: 0, removed: 0, minLine: Infinity, maxLine: 0 };
+            if (!fileChunks.has(edit.filePath)) {
+                fileChunks.set(edit.filePath, []);
+            }
             const lineHashCount = edit.lineHashes === '0:' ? 0 : edit.lineHashes.split(',').length;
             const contentLineCount = edit.content === '' ? 0 : edit.content.split('\n').length;
 
-            // Parse line numbers for range
+            let minLine = Infinity;
+            let maxLine = 0;
             if (edit.lineHashes !== '0:') {
                 for (const entry of edit.lineHashes.split(',')) {
                     const line = parseInt(entry.split(':')[0], 10);
                     if (!isNaN(line) && line > 0) {
-                        info.minLine = Math.min(info.minLine, line);
-                        info.maxLine = Math.max(info.maxLine, line);
+                        minLine = Math.min(minLine, line);
+                        maxLine = Math.max(maxLine, line);
                     }
                 }
             }
 
+            let added = 0;
+            let removed = 0;
+            const isDelete = edit.content === '' && !edit.insertAfter;
             if (edit.insertAfter) {
-                info.added += contentLineCount;
+                added = contentLineCount;
             } else if (edit.content === '') {
-                info.removed += lineHashCount;
+                removed = lineHashCount;
             } else {
-                info.added += contentLineCount;
-                info.removed += lineHashCount;
+                added = contentLineCount;
+                removed = lineHashCount;
             }
-            fileInfo.set(edit.filePath, info);
+
+            fileChunks.get(edit.filePath)!.push({ added, removed, minLine, maxLine, isDelete, isInsertAfter: !!edit.insertAfter });
         }
 
-        // Build per-file summary lines
-        const summaryLines = this.formatFileStats(fileInfo);
-        const summaryText = summaryLines.join('  \n');
+        // Build per-file summary lines with per-chunk detail
+        const editedLines = this.formatChunks(fileChunks, 'Edited', true);
+        const editLines = this.formatChunks(fileChunks, 'Edit', false);
 
-        const invocationMsg = new vscode.MarkdownString(summaryText);
+        const invocationMsg = new vscode.MarkdownString(editedLines.join('  \n'));
         invocationMsg.isTrusted = true;
 
-        const confirmMsg = new vscode.MarkdownString(
-            summaryLines.join('  \n')
-        );
+        const confirmMsg = new vscode.MarkdownString(editLines.join('  \n'));
         confirmMsg.isTrusted = true;
 
         return {
@@ -392,29 +397,70 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
         };
     }
 
-    private formatFileStats(fileInfo: Map<string, { added: number; removed: number; minLine: number; maxLine: number }>): string[] {
+    private formatChunks(
+        fileChunks: Map<string, { added: number; removed: number; minLine: number; maxLine: number; isDelete: boolean; isInsertAfter: boolean }[]>,
+        verb: string,
+        isPostEdit: boolean
+    ): string[] {
         const lines: string[] = [];
-        for (const [filePath, info] of fileInfo) {
+        for (const [filePath, chunks] of fileChunks) {
             const basename = filePath.split('/').pop() ?? filePath;
             const uri = resolveFilePath(filePath);
+            const parts: string[] = [];
 
-            // Build line fragment for link
-            let lineFragment = '';
-            if (info.minLine !== Infinity && info.minLine > 0) {
-                lineFragment = info.minLine === info.maxLine
-                    ? `#L${info.minLine}`
-                    : `#L${info.minLine}-L${info.maxLine}`;
+            // Sort chunks by minLine for correct cumulative delta tracking
+            const sortedChunks = [...chunks].sort((a, b) => a.minLine - b.minLine);
+            let cumulativeDelta = 0;
+
+            for (let i = 0; i < sortedChunks.length; i++) {
+                const chunk = sortedChunks[i];
+
+                // Build line fragment
+                let lineFragment = '';
+                if (chunk.minLine !== Infinity && chunk.minLine > 0) {
+                    if (isPostEdit) {
+                        // Post-edit: adjust line numbers by cumulative delta from earlier chunks
+                        if (chunk.isDelete) {
+                            // Deleted lines are gone; point to where they were
+                            lineFragment = `#L${chunk.minLine + cumulativeDelta}`;
+                        } else if (chunk.isInsertAfter) {
+                            // New lines start after the anchor line
+                            const postStart = chunk.maxLine + cumulativeDelta + 1;
+                            lineFragment = `#L${postStart}-L${postStart + chunk.added}`;
+                        } else {
+                            // Replace: new content sits at the adjusted start position
+                            const adjustedMin = chunk.minLine + cumulativeDelta;
+                            lineFragment = `#L${adjustedMin}-L${adjustedMin + chunk.added}`;
+                        }
+                        cumulativeDelta += chunk.added - chunk.removed;
+                    } else {
+                        // Pre-edit: show the original lines that will be affected
+                        if (chunk.isInsertAfter) {
+                            // Just highlight the anchor line
+                            lineFragment = `#L${chunk.minLine}-L${chunk.minLine + 1}`;
+                        } else {
+                            // Highlight the lines being replaced or deleted
+                            lineFragment = `#L${chunk.minLine}-L${chunk.maxLine + 1}`;
+                        }
+                    }
+                }
+
+                // Build diff string: +N-M with no space
+                let diffStr = '';
+                if (chunk.added > 0) { diffStr += `+${chunk.added}`; }
+                if (chunk.removed > 0) { diffStr += `-${chunk.removed}`; }
+                if (!diffStr) { diffStr = '+0'; }
+
+                const linkUrl = `${uri.toString()}${lineFragment}`;
+                if (i === 0) {
+                    // First chunk: include filename
+                    parts.push(`[${basename} ${diffStr}](${linkUrl})`);
+                } else {
+                    parts.push(`[${diffStr}](${linkUrl})`);
+                }
             }
 
-            let diffStr = '';
-            if (info.added > 0) {
-                diffStr += ` +${info.added}`;
-            }
-            if (info.removed > 0) {
-                diffStr += ` -${info.removed}`;
-            }
-
-            lines.push(`Edited [${basename}](${uri.toString()}${lineFragment})${diffStr}`);
+            lines.push(`${verb} ${parts.join(' ')}`);
         }
         return lines;
     }
