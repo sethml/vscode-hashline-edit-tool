@@ -24,9 +24,16 @@ interface EditResult {
 
 /**
  * Parse "10:qk,11:ab,12:fn" into [{line: 10, hash: "qk"}, ...]
+ *
+ * Accepts commas, newlines, semicolons, spaces, or any mix as separators
+ * between line:hash entries. This tolerates common LLM formatting variants
+ * such as "10:qk\n11:ab\n12:fn" or "10:qk; 11:ab; 12:fn".
  */
 function parseLineHashes(lineHashes: string): { line: number; hash: string }[] {
-    return lineHashes.split(',').map((entry) => {
+    // Split on any combination of commas, newlines, semicolons, and spaces
+    // (but only between entries — the regex splits on separator runs)
+    const entries = lineHashes.split(/[,;\s]+/).filter((s) => s.length > 0);
+    return entries.map((entry) => {
         const colonIdx = entry.indexOf(':');
         if (colonIdx === -1) {
             throw new Error(`Invalid lineHash entry: "${entry}" — expected "line:hash"`);
@@ -35,6 +42,12 @@ function parseLineHashes(lineHashes: string): { line: number; hash: string }[] {
         const hash = entry.substring(colonIdx + 1);
         if (isNaN(line)) {
             throw new Error(`Invalid line number in "${entry}"`);
+        }
+        if (hash !== '' && !/^[a-z]{2}$/.test(hash)) {
+            throw new Error(
+                `Invalid hash "${hash}" for line ${line} — expected 2 lowercase letters (a-z). ` +
+                `Make sure line:hash pairs are separated by commas, e.g. "${line}:${hash.substring(0, 2)},..."`
+            );
         }
         return { line, hash };
     });
@@ -104,7 +117,7 @@ async function applyEditsToFile(
                     filePath: op.filePath,
                     lineHashes: op.lineHashes,
                     status: 'error',
-                    error: `hash mismatch at line ${line}: expected '${hash}', got '${actualHash}'`,
+                    error: `hash mismatch at line ${line}: file has '${actualHash}', edit specified '${hash}'`,
                 });
                 valid = false;
                 break;

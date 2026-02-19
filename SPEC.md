@@ -112,7 +112,7 @@ Each edit object:
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `filePath` | string | yes | Absolute or workspace-relative path |
-| `lineHashes` | string | yes | Comma-separated `{line}:{hash}` pairs identifying the target lines |
+| `lineHashes` | string | yes | `{line}:{hash}` pairs identifying the target lines, separated by commas, newlines, semicolons, or spaces |
 | `content` | string | yes | Replacement content (may be multi-line). Empty string = delete. |
 | `insertAfter` | boolean | no | If true, insert `content` after the identified line(s) instead of replacing them. `lineHashes` should be a single entry identifying the anchor line. Default: false. |
 
