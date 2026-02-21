@@ -305,7 +305,7 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
         for (const edit of edits) {
             const range = fileRanges.get(edit.filePath);
             if (!range) { continue; }
-            const lineHashCount = edit.lineHashes === '0:' ? 0 : edit.lineHashes.split(',').length;
+            const lineHashCount = edit.lineHashes === '0:' ? 0 : parseLineHashes(edit.lineHashes).length;
             const contentLineCount = edit.content === '' ? 0 : edit.content.split('\n').length;
             if (edit.insertAfter) {
                 range.added += contentLineCount;
@@ -362,24 +362,22 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
             if (!fileChunks.has(edit.filePath)) {
                 fileChunks.set(edit.filePath, []);
             }
-            const lineHashCount = edit.lineHashes === '0:' ? 0 : edit.lineHashes.split(',').length;
+            let lineHashPairs: { line: number; hash: string }[] = [];
+            let parseFailed = false;
+            try {
+                lineHashPairs = edit.lineHashes === '0:' ? [{ line: 0, hash: '' }] : parseLineHashes(edit.lineHashes);
+            } catch {
+                parseFailed = true;
+            }
+            const lineHashCount = edit.lineHashes === '0:' ? 0 : lineHashPairs.length;
             const contentLineCount = edit.content === '' ? 0 : edit.content.split('\n').length;
 
             let minLine = Infinity;
             let maxLine = 0;
-            const lineHashPairs: { line: number; hash: string }[] = [];
-            if (edit.lineHashes !== '0:') {
-                for (const entry of edit.lineHashes.split(',')) {
-                    const colonIdx = entry.indexOf(':');
-                    if (colonIdx !== -1) {
-                        const line = parseInt(entry.substring(0, colonIdx), 10);
-                        const hash = entry.substring(colonIdx + 1);
-                        if (!isNaN(line) && line > 0) {
-                            minLine = Math.min(minLine, line);
-                            maxLine = Math.max(maxLine, line);
-                            lineHashPairs.push({ line, hash });
-                        }
-                    }
+            for (const { line } of lineHashPairs) {
+                if (line > 0) {
+                    minLine = Math.min(minLine, line);
+                    maxLine = Math.max(maxLine, line);
                 }
             }
 
@@ -396,7 +394,7 @@ export class HashlineEditTool implements vscode.LanguageModelTool<EditInput> {
             }
 
             // Pre-validate hashes against the actual file
-            let valid = true;
+            let valid = !parseFailed;
             try {
                 const uri = resolveFilePath(edit.filePath);
                 const doc = await vscode.workspace.openTextDocument(uri);
