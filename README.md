@@ -39,18 +39,17 @@ safely rejected.
 
 ### From Source
 
-1. Clone or copy the `hashline-edit/` directory.
-2. Install dependencies, compile, and package:
+1. Clone the repository.
+2. Install dependencies and package:
    ```sh
-   cd hashline-edit
    npm install
-   npm run compile
    npm install -g @vscode/vsce
    vsce package
    ```
+   (Compilation runs automatically via the `vscode:prepublish` script.)
 3. In VS Code, open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
    and run **Extensions: Install from VSIX...**
-4. Select the generated `hashline-edit-0.1.0.vsix` file.
+4. Select the generated `hashline-edit-1.*.vsix` file.
 5. Reload VS Code when prompted.
 
 ### Requirements
