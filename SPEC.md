@@ -168,6 +168,20 @@ in their place.
 }
 ```
 
+**Replace large range (bookend)**:
+For ranges of 6 or more lines, provide at least 3 hashes at the beginning and
+3 at the end. Any separator (comma, dash, etc.) can be used between entries.
+```json
+{
+  "filePath": "src/server.ts",
+  "lineHashes": "167:or,168:dd,169:yj-479:ge,480:dd,481:ea",
+  "content": "// replacement content"
+}
+```
+The edit replaces all lines from the first to the last in the range. Only the
+bookend lines are hash-verified; intermediate lines are included in the
+replacement without individual hash checks.
+
 ### Edit Application Order
 
 Edits within the same file are sorted by line number descending (bottom-up)
@@ -183,7 +197,9 @@ Before applying an edit:
 2. For each pair, read the current content of that line.
 3. Compute the hash of the current content.
 4. If any hash doesn't match, reject **that edit** with an error.
-5. Verify the line numbers are contiguous (for replace operations).
+5. Verify the line numbers are contiguous (for replace operations), or form
+   a valid bookend range: a single gap with at least 3 hashes at each end
+   and a total span of 6+ lines.
 
 ### Return Value
 

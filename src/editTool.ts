@@ -25,14 +25,14 @@ interface EditResult {
 /**
  * Parse "10:qk,11:ab,12:fn" into [{line: 10, hash: "qk"}, ...]
  *
- * Accepts commas, newlines, semicolons, spaces, or any mix as separators
- * between line:hash entries. This tolerates common LLM formatting variants
- * such as "10:qk\n11:ab\n12:fn" or "10:qk; 11:ab; 12:fn".
+ * Any characters that aren't part of a line:hash entry (digits, colon,
+ * lowercase letters) are treated as separators. This tolerates commas,
+ * semicolons, spaces, newlines, dashes, and any other formatting the
+ * LLM might produce — e.g. "10:qk,11:ab,12:fn" or "10:qk-20:ab".
  */
 function parseLineHashes(lineHashes: string): { line: number; hash: string }[] {
-    // Split on any combination of commas, newlines, semicolons, and spaces
-    // (but only between entries — the regex splits on separator runs)
-    const entries = lineHashes.split(/[,;\s]+/).filter((s) => s.length > 0);
+    // Split on any character(s) that aren't part of a line:hash entry
+    const entries = lineHashes.split(/[^0-9:a-z]+/).filter((s) => s.length > 0);
     return entries.map((entry) => {
         const colonIdx = entry.indexOf(':');
         if (colonIdx === -1) {
@@ -130,17 +130,35 @@ async function applyEditsToFile(
         // Check contiguity for replace operations
         if (!op.insertAfter && parsed.length > 1) {
             const sortedLines = parsed.map((p) => p.line).sort((a, b) => a - b);
+            const gaps: number[] = [];
             for (let i = 1; i < sortedLines.length; i++) {
                 if (sortedLines[i] !== sortedLines[i - 1] + 1) {
+                    gaps.push(i);
+                }
+            }
+            if (gaps.length === 1) {
+                // Allow a single gap if the total range is 6+ lines and
+                // at least 3 hashes anchor each end (bookend range)
+                const headCount = gaps[0];
+                const tailCount = sortedLines.length - gaps[0];
+                const totalRange = sortedLines[sortedLines.length - 1] - sortedLines[0] + 1;
+                if (totalRange < 6 || headCount < 3 || tailCount < 3) {
                     results.push({
                         filePath: op.filePath,
                         lineHashes: op.lineHashes,
                         status: 'error',
-                        error: `lines must be contiguous for replace; gap between ${sortedLines[i - 1]} and ${sortedLines[i]}`,
+                        error: `lines must be contiguous for replace, or provide at least 3 hashes at each end of a range of 6+ lines; gap between ${sortedLines[gaps[0] - 1]} and ${sortedLines[gaps[0]]}`,
                     });
                     valid = false;
-                    break;
                 }
+            } else if (gaps.length > 1) {
+                results.push({
+                    filePath: op.filePath,
+                    lineHashes: op.lineHashes,
+                    status: 'error',
+                    error: `lines must be contiguous for replace; multiple gaps (first between ${sortedLines[gaps[0] - 1]} and ${sortedLines[gaps[0]]})`,
+                });
+                valid = false;
             }
             if (!valid) {
                 continue;

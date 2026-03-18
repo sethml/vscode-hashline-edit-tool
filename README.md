@@ -83,11 +83,13 @@ files.
 Example workflow:
 1. Read: `hashline_read({filePath: "src/app.ts", startLine: 1, endLine: 20})`
    Returns: `1:qk|import React...`
-2. Edit: `hashline_edit({edits: [{filePath: "src/app.ts", lineHashes: "4:mp", content: "  return <div>Hello</div>;"}]})`
+2. Edit: `hashline_edit({edits: [{filePath: "src/app.ts", lineHashes: "3:fn,4:mp,5:ze", content: "export function App() {\n  return <div>Goodbye</div>;\n}"}]})`
 
 Operations:
-- **Replace**: set `lineHashes` to all lines being replaced, `content` to new text
+- **Replace**: set `lineHashes` to the lines being replaced (e.g. `"3:fn,4:mp,5:ze"`), `content` to new text
+- **Replace large range**: provide at least 3 hashes at each end, e.g. `"167:or,168:dd,169:yj-479:ge,480:dd,481:ea"`
 - **Insert after**: set `insertAfter: true`, `lineHashes` to anchor line
+- **Insert at file start**: set `insertAfter: true`, `lineHashes` to `"0:"`
 - **Delete**: set `content` to empty string
 - Multiple edits can be batched in one call across files
 ```
@@ -112,7 +114,10 @@ These tools use content hashes to verify edits target the correct lines,
 preventing stale-file corruption.
 
 Read output format: `{lineNumber}:{twoLetterHash}|{lineContent}`
-Edit input: reference lines as `{line}:{hash}` pairs from the read output.
+Edit input: reference lines as `{line}:{hash}` pairs from the read output,
+e.g. `"3:fn,4:mp,5:ze"`. For large ranges (6+ lines), provide at least 3
+hashes at each end, e.g. `"167:or,168:dd,169:yj-479:ge,480:dd,481:ea"`.
+To insert at the start of a file, use `"0:"` with `insertAfter: true`.
 ```
 
 ### Method 3: Per-Prompt Reference
@@ -147,8 +152,11 @@ When you need to read a file, use hashline_read. It returns lines in the
 format `{lineNumber}:{hash}|{content}`.
 
 When you need to edit a file, use hashline_edit. Specify the lines to change
-using `{line}:{hash}` pairs from your most recent read of that file. If an
-edit fails due to hash mismatch, re-read the affected region and retry.
+using `{line}:{hash}` pairs from your most recent read of that file, e.g.
+`"3:fn,4:mp,5:ze"`. For large ranges (6+ lines), provide at least 3 hashes
+at each end, e.g. `"167:or,168:dd,169:yj-479:ge,480:dd,481:ea"`. To insert
+at the start of a file, use `"0:"` with `insertAfter: true`. If an edit
+fails due to hash mismatch, re-read the affected region and retry.
 
 Never use built-in file editing tools. Always use hashline_read and
 hashline_edit.
@@ -182,6 +190,7 @@ Invoke with `@hashline-coder` in chat.
 |-----------|-----------|---------|-------------|
 | Replace one line | `"4:mp"` | new text | omit |
 | Replace range | `"3:fn,4:mp,5:ze"` | new text (may be multi-line) | omit |
+| Replace large range | `"167:or,168:dd,169:yj-479:ge,480:dd,481:ea"` | new text | omit |
 | Insert after line | `"2:ab"` | text to insert | `true` |
 | Insert at file start | `"0:"` | text to insert | `true` |
 | Delete lines | `"2:ab"` or `"2:ab,3:fn"` | `""` | omit |
